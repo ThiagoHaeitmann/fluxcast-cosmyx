@@ -81,13 +81,39 @@ def _nm_p2p_device_path(interface: Optional[str] = None) -> Optional[str]:
         raise WFDNotReady((result.stderr or result.stdout).strip())
 
     requested = interface or ""
+
     for path in _object_paths(result.stdout):
-        iface = _nm_get_string(path, "org.freedesktop.NetworkManager.Device", "Interface")
-        if not iface or "p2p" not in iface.lower():
+        iface = _nm_get_string(
+            path,
+            "org.freedesktop.NetworkManager.Device",
+            "Interface",
+        )
+
+        device_type = _variant_uint(
+            _nm_get_property(
+                path,
+                "org.freedesktop.NetworkManager.Device",
+                "DeviceType",
+            )
+        )
+
+        # Prefer NetworkManager's real device classification.
+        # If the D-Bus property cannot be read, preserve the old
+        # interface-name detection as a fallback.
+        if device_type is not None:
+            if device_type != 30:
+                continue
+        elif not iface or "p2p" not in iface.lower():
             continue
-        if requested and requested not in iface:
-            continue
+
+        if requested and requested not in (iface or ""):
+            # IWD exposes the P2P device using paths such as
+            # /net/connman/iwd/0 rather than a traditional p2p-* name.
+            if not (iface or "").startswith("/net/connman/iwd/"):
+                continue
+
         return path
+
     return None
 
 def _nm_start_find(path: str, timeout: int) -> None:
